@@ -1,0 +1,848 @@
+---
+title: "Progetto di Machine Learning"
+author: "Antonio Grillo, Giacomo Motta, Gabriele Pandini"
+date: "25 Gennaio 2023"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Dataset Diabetes
+
+Questo set di dati proviene originariamente dal National Institute of Diabetes and Digestive and Kidney Diseases. L'obiettivo è di prevedere diagnosticamente se un paziente ha il diabete, sulla base di determinate misurazioni diagnostiche. I dati sono tratti da un database più ampio. In particolare, tutti gli individui del dataset sono femmine di almeno 21 anni di origine Pima (un gruppo di nativi americani viventi in un territorio che attualmente comprende l'Arizona centrale e meridionale).
+
+Dal dataset nel file (`diabetes.csv`) possiamo trovare diverse variabili, alcune delle quali sono indipendenti (diverse variabili predittive mediche) e solo una variabile è dipendente dall'obiettivo (risultato).
+
+Il dataset è reperibile al seguente link: <https://www.kaggle.com/datasets/whenamancodes/predict-diabities>.
+
+Analisi degli attributi presenti nel dataset:
+
+-   `Pregnancies`: esprime il numero di gravidanze.
+
+-   `Glucose`: esprime il livello di glucosio nel sangue. Soggetti sani hanno valori di glucosio nel sangue compresi tra 70 mg/dl e 140 mg/dl circa ([1](https://www.valorinormali.com/sangue/glicemia/)).
+
+-   `BloodPressure`: esprime il livello della pressione del sangue. Soggetti sani hanno valori di pressione sanguigna tra 80 mmHg e 129 mmHg circa ([2](https://www.omron-healthcare.it/it/salute-e-stile-di-vita/salute-del-cuore/gestione-della-pressione-arteriosa/comprendere-i-valori-e-i-grafici-della-pressione-arteriosa.html)).
+
+-   `SkinThickness`: esprime lo spessore della pelle.
+
+-   `Insulin`: esprime il livello di insulina nel sangue. In Soggetti sani varia tra 5 e 125 micr.UI/ml ([3](https://www.valorinormali.com/sangue/insulina/)).
+
+-   `BMI`: esprime l'indice di massa corporea, in soggetti sani è compreso nell'intervallo 18,5-25 ([4](https://www.ars.toscana.it/aree-dintervento/determinanti-di-salute/428-alimentazione-attivita-fisica-e-peso-corporeo/peso-corporeo/approfondimenti/1078-lindice-di-massa-corporea.html)).
+
+-   `DiabetesPedigreeFunction`: esprime la probabilità di avere il diabete in base alla storia familiare ([5](https://towardsdatascience.com/easy-data-science-with-r-and-python-diabetes-among-the-pima-indians-an-exploratory-analysis-d7bc321d0fa7)).
+
+-   `Age`: esprime l'eta del soggetto.
+
+-   `Outcome`: indica se il soggetto è diabetico oppure no.
+
+## Librerie ed import utilizzati
+
+Segue l'elenco delle librerie da installare per lo scopo del progetto:
+
+```{r}
+install.packages(c("FactoMineR", "factoextra"))
+install.packages("lattice")
+install.packages("dplyr")
+install.packages("lattice")
+install.packages("rpart")
+install.packages("rattle")
+install.packages("rpart.plot")
+install.packages("RColorBrewer")
+install.packages("pROC")
+install.packages("caret")
+install.packages("ROCR")
+```
+
+Segue invece l'elenco delle librerie da importare:
+
+```{r}
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+library(lattice)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(pROC)
+library(caret)
+library(ROCR)
+```
+
+## Lettura e preprocessing del dataset
+
+Viene letto il dataset tramite le seguenti istruzioni. Viene utilizzata la funzione `str` per avere un idea iniziale del dataset.
+
+```{r}
+dataset = read.csv("diabetes.csv", header = TRUE)
+str(dataset)
+```
+
+Dal risultato della funzione `str` si può notare che sono presenti diversi attributi che hanno valore `0`. Di norma, per i valori `Glucose`, `BloodPressure`, `SkinThickness`, `Insulin` e `BMI`, non può accadere, quindi ciò determina la mancaza del valore dell'attributo. Di conseguenza viene controllata l'effettiva numerosità di istanze, per ogni attributo, che possiedono valori a `0`. Il risultato viene salvato nel dataframe `df` e in seguito mostrato.
+
+```{r}
+df = data.frame(colSums(dataset==0))
+df
+```
+
+Analizzando i risultati ottenuti è stato deciso di togliere le istanze che possiedono valori di `Glucose` e/o `BMI` uguale a `0` dal momento che risulterebbero circa il 2% del dataset. Successivamente verrano trattate anche le istanze che possiedono valori nulli per attributi `BloodPressure`, `SkinThickness` e `Insulin`.
+
+La seguente funzione rimuove le istanze con valori di `Glucose` e/o `BMI` uguale a `0`.
+
+```{r}
+dataset = filter(dataset, Glucose > 0 & BMI > 0)
+```
+
+In seguito vengono analizzati nuovamente gli attributi con valori pari a `0`.
+
+```{r}
+df = data.frame(colSums(dataset==0))
+df
+```
+
+Come si può notare dai risultati ottenuti, le voci `BloodPressure`, `SkinThickness` e `Insulin` possiedono numerose istanze con valori nulli. Rimuoverle potrebbe influire seriamente sull'utilizzabilità del dataset. Dunque, si è preferito sostituire tali valori nulli con la media dei relativi attributi (si noti che la media viene calcolata facendo uso delle istanze che non hanno valori nulli).
+
+```{r}
+df = data.frame(colSums(dataset==0))
+meanGlucose = (mean(dataset$Glucose) * nrow(dataset)) / 
+  (nrow(dataset) - df['Glucose',])
+meanBloodPressure = (mean(dataset$BloodPressure) * 
+                       nrow(dataset)) / (nrow(dataset) - 
+                                           df['BloodPressure',])
+meanSkinThickness = (mean(dataset$SkinThickness) * nrow(dataset))/
+  (nrow(dataset) - df['SkinThickness',])
+meanInsulin = (mean(dataset$Insulin) * nrow(dataset)) / 
+              (nrow(dataset)-df['Insulin',])
+meanBMI = (mean(dataset$BMI) * nrow(dataset)) / 
+          (nrow(dataset)-df['BMI',])
+
+dataset$Glucose[dataset$Glucose == 0] = meanGlucose
+dataset$BloodPressure[dataset$BloodPressure == 0] = 
+  meanBloodPressure
+dataset$SkinThickness[dataset$SkinThickness == 0] = 
+  as.integer(meanSkinThickness)
+dataset$Insulin[dataset$Insulin == 0] = meanInsulin
+dataset$BMI[dataset$BMI == 0] = meanBMI
+summary(dataset)
+```
+
+```{r}
+df = data.frame(colSums(dataset == 0))
+df
+```
+
+In seguito, per comodità, vengono convertiti i valori assunti della variabile target `Outcome` in `Yes` per il valore `1` e `No` per il valore `0`.
+
+```{r}
+dataset$Outcome = ifelse(dataset$Outcome == "1", "Yes", "No")
+```
+
+Infine, converto la variabile `Outcome` nel tipo `factor`:
+
+```{r}
+dataset$Outcome = factor(dataset$Outcome)
+str(dataset)
+```
+
+## Creazione del training set e test set
+
+Per la divisione del dataset originario in training set e test set, viene definita la seguente funzione:
+
+```{r}
+split.data = function(data, p = 0.7, s = 1){
+  set.seed(s)
+  index = sample(1:dim(data)[1])
+  train = data[index[1:floor(dim(data)[1] * p)], ]
+  test = data[index[((ceiling(dim(data)[1] * p)) + 1):
+                      dim(data)[1]], ] 
+  return(list(train=train, test=test)) 
+}
+```
+
+Quindi viene eseguita la divisione del dataset.
+
+```{r}
+allset = split.data(dataset, p = 0.7, s = 1)
+trainset = allset$train
+testset = allset$test
+```
+
+Si noti che vengono mantenuti i parametri di default della funzione. In particolare, viene assegnato il 70% del dataset al training set, mentre il restante al test set. Inoltre viene passato `s = 1` come seme per rendere riproducibili gli stessi valori casuali nel codice.
+
+## Descrizione del training set
+
+In questa sezione verrà effettuata una analisi esplorativa del training set.
+
+In primis, vengono mostrate le statistiche del primo ordine:
+
+```{r}
+summary(trainset)
+```
+
+Segue un plot che mostra la distribuzione dei positivi e negativi, in fattori di quantità all'interno del dataset.
+
+```{r}
+barplot(table(trainset$Outcome), 
+        main = "Diabetici", 
+        names = c("No", "Sì"))
+```
+
+Come si può vedere dal precedente grafico, il numero degli individui che è negativo è in numero maggiore rispetto ai positivi.
+
+Segue il grafico che mostra l'istogramma che mostra il numero di gravidanze degli individui:
+
+```{r}
+hist(trainset$Pregnancies, 
+     main = "Gravidanze", 
+     xlab="Numero di gravidanze")
+```
+
+Il seguente istogramma mostra il livello di glucosio negli individui:
+
+```{r}
+hist(trainset$Glucose, 
+     main = "Glucosio", 
+     xlab="Livello di glucosio")
+```
+
+Seguono i grafici che mostrano il valore della pressione del sangue e dello spessore della pelle:
+
+```{r}
+hist(trainset$BloodPressure, 
+     main = "Pressione del sangue", 
+     xlab="valore della pressione del sangue")
+```
+
+```{r}
+hist(trainset$SkinThickness, 
+     main = "Spessore della pelle", 
+     xlab="Spessore")
+```
+
+Successivamente, viene presentato l'istogramma relativo ai livelli di insulina e quello sull'indice BMI degli individui.
+
+```{r}
+hist(trainset$Insulin, 
+     main = "Insulina", 
+     xlab="Livello di insulina")
+
+```
+
+```{r}
+hist(trainset$BMI, 
+     main = "BMI", 
+       xlab="Indice BMI")
+```
+
+Inoltre, la distribuzione delle età all'interno del dataset è la seguente:
+
+```{r}
+hist(trainset$Age, 
+     main = "Età",
+     xlab="Età")
+```
+
+Da ciò si deduce che sono prevalenti gli individui tra i 20 e i 30 anni.
+
+Segue il boxplot che analizza le gravidanze:
+
+```{r}
+boxplot(trainset$Pregnancies,
+        col = "lightgreen",
+        border = "darkgreen",
+        horizontal = TRUE,
+        main = "Distribuzione gravidanze nel trainset",
+        xlab = "Numero di gravidanze"
+)
+```
+
+Il risultato di questo grafico è che la mediana delle nascite si trova attorno al valore 3.
+
+In seguito, vengono confrontati i dati relativi alle età dei campioni e, per ognuna, la proporzione di positività o no al diabete.
+
+```{r}
+barplot(table(trainset$Outcome, trainset$Age),
+        col=c("darkblue","red"),
+        legend = c("Non diabetici", "Diabetici"),
+        main = "Individui diabetici per età",
+        ylab = "Frequency",
+        xlab = "Età")
+```
+
+Osservando il precedente istogramma, si può notare che più aumenta l'età e più è probabile che il diabete sia presente nella popolazione.
+
+Poi, viene confrontato il numero di gravidanze con il risultato finale.
+
+```{r}
+barplot(table(trainset$Outcome, trainset$Pregnancies),
+        col=c("darkblue","red"),
+        legend = c("Non diabetici", "Diabetici"),
+        main = "Individui diabetici per gravidanza",
+        ylab = "Frequency",
+        xlab = "Numero di gravidanze")
+```
+
+Dal precedente istogramma non sembra essere incidente l'aver avuto poche gravidanze (ad esempio fino a 4) con l'essere diabetici. Tuttavia, si nota un graduale aumento delle positività con le gravidanze che sono maggiori di 5 (tranne per le eccezioni 6 e 10).
+
+Segue il grafico che confronta i soggeti diabetici e non sulla base del livello di glucosio:
+
+```{r}
+barplot(table(trainset$Outcome, trainset$Glucose),
+        col=c("darkblue","red"),
+        legend = c("Non diabetici", "Diabetici"),
+        main = "Individui diabetici per glucosio",
+        ylab = "Frequency",
+        xlab = "Individui diabetici per glucosio")
+```
+
+Da questo grafico è deducibile che vi è prevalenza di diabetici in individui che hanno un alto livello di glucosio.
+
+Il seguente grafico mostra la distribuzione dei paizenti diabetici e non diabetici sulla base della pressione del sangue:
+
+```{r}
+counts = table(trainset$Outcome, trainset$BloodPressure)
+barplot(counts, 
+        col=c("darkblue","red"), 
+        legend = c("Non diabetici", "Diabetici"), 
+        main = "Pazienti con diabete per pressione sanguigna")
+```
+
+Dal risultato si può affermare che non è presente una correlazione tra il diabete e uno specifico range della pressione del sangue, dal momento che la proporzione di diabetici e non della maggior parte delle colonne è costante.
+
+Confronto l'insulina con il livello di glucosio nel sangue:
+
+```{r}
+xyplot(trainset$Insulin ~ trainset$Glucose, 
+       data = trainset, 
+       group = Outcome,
+       col=c("darkblue","red"),
+       auto.key = TRUE,
+       ylab = "Livello di insulina",
+       xlab = "Livello di glucosio")
+```
+
+Dal precedente grafo si può notare che i dati hanno un ordinamento sparso tra di loro senza una vera e propria distinzione in base alle due variabili scelte.
+
+### Analisi delle Componenti Principali
+
+Vengono selezionate le varibili quantitative per eseguire le PCA:
+
+```{r}
+trainset.active = trainset[, -9]
+```
+
+Quindi non viene presa in considerazione la variabile di target, ovvero `Outcome`.
+
+Successivamente viene eseguita la PCA ed analizzati gli autovalori:
+
+```{r}
+res.pca = PCA(trainset.active, graph = FALSE)
+eig.val = get_eigenvalue(res.pca)
+eig.val
+```
+
+Per l'analisi delle componenti principali, vengono scelte le prime quattro dimensioni che coprono circa il 72% della varianza, oltre che avere un valore degli autovalori che è maggiore di uno o approssimativamente vicino.
+
+#### Componenti Principali e variabili
+
+Per vedere gli effetti delle PCA sulle variabili del trainset viene effettuata una proiezione su un grafo:
+
+```{r}
+var = get_pca_var(res.pca)
+fviz_pca_var(res.pca, col.var = "black")
+```
+
+Come si può osservare dal precedente grafico, in base alle prime due dimensioni, la maggioranza delle variabili sono positivamente correlate, visto che sono raggruppate assieme. Invece, la variabile meglio rappresentata è `Age` (che dista circa 0.86 dall'origine) perché è la più lontana dall'origine.
+
+Analogamente per le dimensioni 1 e 3:
+
+```{r}
+fviz_pca_var(res.pca, col.var = "black", axes = c(1,3))
+```
+
+Anche in questo caso si ha un risultato analogo al precedente, tuttavia la varianza coperta da queste due dimensioni è minore rispetto alle precedenti. Quindi, risulta esser meglio rappresentata la variabile `Insulin` rispetto alla componente principale 1 e 3.
+
+Segue il grafico per le dimensioni 1 e 4:
+
+```{r}
+fviz_pca_var(res.pca, col.var = "black", axes = c(1,4))
+```
+
+Come si può notare dal grafico, praticamente tutte le variabili sono positivamente correlate dal momento che sono raggruppate in un unico punto. Tuttavia,la variabile `DiabetesPedigreeFunction` è l'unica non correlata con le altre. Inoltre, è quella meglio rappresentata dal momento che risulta più distante della altre dall'origine.
+
+#### Componenti Principali e individui
+
+Per vedere gli effetti delle PCA sugli individui del trainset viene effettuata una proiezione su un grafo:
+
+```{r}
+ind = get_pca_ind(res.pca)
+fviz_pca_ind(res.pca,
+             axes = c(1, 2),
+             col.ind = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
+
+Riguardo le prime due dimensioni, come si può vedere, un alto `cos2`, quindi di colore tra arancione e rosso, indica che gli individui sono ben rappresentati dalle dimensioni 1 e 2. Segue che la maggioranza degli individui sono correttamente rappresentati da queste due componenti.
+
+Viene effettuato il procedimento analogo con la dimensione 1 e 3.
+
+```{r}
+ind = get_pca_ind(res.pca)
+fviz_pca_ind(res.pca,
+             axes = c(1, 3),
+             col.ind = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
+
+Anche in questo caso il risultato è quasi simile al precedente, anche se peggiore del primo.
+
+Infine, segue il grafico per le dimiensioni 1 e 4:
+
+```{r}
+ind = get_pca_ind(res.pca)
+fviz_pca_ind(res.pca,
+             axes = c(1, 4),
+             col.ind = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
+
+In questo caso vi è una leggera prevalenza del valore `cos2` mediamente alto rispetto al grafico della componente 1 e 3.
+
+In seguito viene riportato il biplot delle prime due componenti principali, raggruppando anche i punti in base alla classe di appartenenza.
+
+```{r}
+fviz_pca_biplot(res.pca,
+                geom.ind = "point",
+                col.ind = trainset$Outcome,
+                addEllipses = TRUE,
+                legend.title = "Groups")
+```
+
+Da questo si nota una sovrapposizione delle classi tramite la rappresentazione delle componenti principali 1 e 2.
+
+## Scelta dei modelli ed esperimenti
+
+I due modelli presi in considerazione sono gli alberi di decisione e il Naive Bayes.
+
+Per quanto riguarda la scelta del primo, questa è stata influenzata dalle seguenti motivazioni:
+
+-   Risulta molto intuitivo e facile da analizzare e interpretare, ciò permette di illustrare chiaramente i risultati ottenuti da esso. Quindi risulta vantaggioso anche in ambito medico, come nel caso in questione.
+
+-   Sono in grado di funzionare discretamente bene anche se le assunzioni fatte sui dati dovessero essere violate.
+
+-   Gli alberi decisionali eseguono implicitamente lo screening delle variabili o la selezione delle caratteristiche.
+
+-   Gli alberi decisionali richiedono uno sforzo relativamente ridotto da parte degli utenti per la preparazione dei dati.
+
+Inoltre, è stato preso in considerazione il fatto che l'albero decisionale ha il rischio di essere troppo specifico per il trainset (overfitting). Questo è stato gestito durante lo sviluppo di tale modello.
+
+Per quanto riguarda l'utilizzo del modello naive Bayes viene motivato dai seguenti punti:
+
+-   Uno dei principali vantaggi del Classificatore Naive Bayes è il funzionamento ottimale anche con un set di addestramento di dimensioni ridotte. Questo vantaggio deriva dal fatto che il classificatore Naive Bayes è parametrizzato tramite la media e la varianza di ogni variabile indipendentemente da tutte le altre variabili [(6)](https://help.alteryx.com/it/20223/designer/naive-bayes-classifier-tool).
+-   Algoritmo molto semplice e veloce. Funziona bene sia sulla classificazione binaria sia su quella multiclasse [(7)](https://pulplearning.altervista.org/naive-bayes-algoritmi-di-machine-learning/).
+-   Esso esplicita la manipolazione delle probabilità ed è tra gli approcci più pratici a certi tipi di problemi di apprendimento (infatti Bayes compete con gli alberi di decisione e le reti neurali).
+-   È specificato che le variabili sono tra loro indipendenti e che i valori assunti dalla variabile target sono presi da un insieme di valori finiti.
+
+### Decision Tree
+
+In questo paragrafo verrà mostrato l'allenamento dell'albero di decisione e una eventuale potatura dello stesso. Si noti che i seguenti modelli vengono allenati tutti con una 10-fold cross validation.
+
+L'albero viene allenato sul training set tramite i seguenti comandi:
+
+```{r}
+set.seed(1)
+dt = rpart(Outcome ~ ., 
+           data = trainset, 
+           method = "class", 
+           control = rpart.control(xval=10))
+fancyRpartPlot(dt)
+```
+
+Come si può notare, l'albero risultante è folto e potrebbe necessitare di una potatura per evitare l'overfitting dei dati. Per poterlo potare, si dovrà stimare il corretto parametro di complessità `cp`. Infatti questo parametro permette la terminazione della generazione di nuovi rami dell'albero una volta superato. Per stimarlo, viene mostrato il seguente grafico dei vari `cp` che possono essere assunti dall'albero.
+
+```{r}
+plotcp(dt)
+```
+
+Secondo la [documentazione](https://www.rdocumentation.org/packages/rpart/versions/4.1.19/topics/plotcp), il `cp` ottimale da scegliere è `cp = 0.057`.
+
+Quindi effettuo una potatura sull'albero impostando l'opportuno `cp`.
+
+```{r}
+pdt = rpart(Outcome ~ ., 
+           data = trainset, 
+           method = "class", 
+           control = rpart.control(xval=10,
+                                   cp = 0.057))
+fancyRpartPlot(pdt)
+```
+
+Una volta ottenuti i due alberi, vanno confrontati e misurate le performance di entrambi per poter scegliere il migliore.
+
+#### Confronti tra alberi
+
+Matrice di confusione per l'albero non potato:
+
+```{r}
+dtp = predict(dt, testset, type = "class")
+rdt = confusionMatrix(dtp,
+                      testset$Outcome,
+                      mode = "prec_recall")
+rdt
+```
+
+Segue la matrice di confusione dell'albero potato:
+
+```{r}
+pdtp = predict(pdt, testset, type = "class")
+rpdt = confusionMatrix(pdtp,
+                       testset$Outcome,
+                       mode = "prec_recall")
+rpdt
+```
+
+Viene mostrata ora la curva ROC dell'albero di decisone originale:
+
+```{r}
+dt.pred.cart = predict(dt, 
+                       newdata = testset, 
+                       type = "prob")[, 2]
+dt.pred.rocr = prediction(dt.pred.cart, testset$Outcome)
+dt.perf.tpr.rocr = performance(dt.pred.rocr, "tpr", "fpr")
+dt.perf.rocr = performance(dt.pred.rocr, 
+                        measure = "auc", 
+                        x.measure = "cutoff")
+plot(dt.perf.tpr.rocr, 
+     main=paste("DT AUC:",(dt.perf.rocr@y.values)))
+abline(0, 1, lty = 2)
+```
+
+Di seguito viene definita la funzione per determinare il cut-off ottimale:
+
+```{r}
+opt.cut = function(perf, pred){
+  cut.ind = mapply(FUN=function(x, y, p){
+    d = (x - 0)^2 + (y-1)^2
+    ind = which(d == min(d))
+    c(sensitivity = y[[ind]], 
+      specificity = 1-x[[ind]],
+      cutoff = p[[ind]])
+  }, perf@x.values, perf@y.values, pred@cutoffs)
+}
+```
+
+Viene stampato il Cut-Off ottimale:
+
+```{r}
+print("DT")
+print(opt.cut(dt.perf.tpr.rocr, dt.pred.rocr))
+```
+
+Quindi si riporta il grafico di confronto tra cut-off e accuracy:
+
+```{r}
+dt.acc.perf = performance(dt.pred.rocr, measure = "acc")
+plot(dt.acc.perf)
+```
+
+Infine, l'overall accuracy risulta essere:
+
+```{r}
+ind = which.max(slot(dt.acc.perf, "y.values")[[1]] ) 
+dt.acc = slot(dt.acc.perf, "y.values")[[1]][ind]
+cutoff = slot(dt.acc.perf, "x.values")[[1]][ind] 
+print(c(accuracy = dt.acc, cutoff = cutoff))
+```
+
+Di seguito vengono effettuate le procedure analoghe anche per l'albero potato. Si inizia con la curva ROC.
+
+```{r}
+pdt.pred.cart = predict(pdt, 
+                        newdata = testset, 
+                        type = "prob")[, 2]
+pdt.pred.rocr = prediction(pdt.pred.cart, testset$Outcome)
+pdt.perf.tpr.rocr = performance(pdt.pred.rocr, "tpr", "fpr")
+pdt.perf.rocr = performance(pdt.pred.rocr, 
+                        measure = "auc", 
+                        x.measure = "cutoff")
+plot(pdt.perf.tpr.rocr, 
+     main=paste("PDT AUC:",(pdt.perf.rocr@y.values)))
+abline(0, 1, lty = 2)
+```
+
+Segue il cut-off ottimale:
+
+```{r}
+print("PDT")
+print(opt.cut(pdt.perf.tpr.rocr, pdt.pred.rocr))
+```
+
+E il confronto accuracy-cut-off:
+
+```{r}
+pdt.acc.perf = performance(pdt.pred.rocr, measure = "acc")
+plot(pdt.acc.perf)
+```
+
+Infine, viene stampato il dato sulla overall accuracy:
+
+```{r}
+ind = which.max(slot(pdt.acc.perf, "y.values")[[1]]) 
+pdt.acc = slot(pdt.acc.perf, "y.values")[[1]][ind]
+cutoff = slot(pdt.acc.perf, "x.values")[[1]][ind] 
+print(c(accuracy = pdt.acc, cutoff = cutoff))
+```
+
+##### Analisi e conclusioni
+
+In questa sezione verranno confrontati i risultati delle performance dei due alberi e, in base ad essi, verrà scelto il migliore.
+
+Principalmente, vengono confrontate le matrici di confusione dei due alberi:
+
+```{r}
+print("Albero normale: ")
+rdt$table
+print('-----------------')
+print("Albero pruned: ")
+rpdt$table
+```
+
+Analizzando le matrici di confusione si nota che l'albero pruned ha qualche errore in più nella predizione rispetto al non pruned. Infatti, si noti che il numero dei falsi positivi del pruned è maggiore di quello dell'albero normale.
+
+L'accuracy dei due modelli è la seguente:
+
+```{r}
+print("Albero normale: ")
+rdt$overall['Accuracy']
+print('-----------------')
+print("Albero pruned: ")
+rpdt$overall['Accuracy']
+```
+
+Da ciò segue che l'albero non potato ha una accuracy leggermente maggiore rispetto al pruned. Tuttavia, essendo il test set sbilanciato in quanto ci sono molti più individui con `Outcome = No` rispetto a quelli con `Yes`, l'accuracy in questo caso potrebbe non essere una metrica significativa.
+
+Vengono mostrate le misure di precision e recall:
+
+```{r}
+print("Albero normale: ")
+rdt$byClass['Precision']
+print('-----------------')
+print("Albero pruned: ")
+rpdt$byClass['Precision']
+```
+
+Le precision risultanti hanno valori quasi simili. Quindi si può affermare che entrambi gli alberi hanno una precisione simile nel predirre le classi positive del test set. Questo porta a preferire l'albero non potato per il fatto che la sua precision è leggermente più alta dell'altro.
+
+```{r}
+print("Albero normale: ")
+rdt$byClass['Recall']
+print('-----------------')
+print("Albero pruned: ")
+rpdt$byClass['Recall']
+```
+
+Da quanto riportato, si può esservare che l'albero non potato ha una recall più alta di quello potato. Questo è un parametro di performance da tenere in considerazione soprattutto in ambito medico, visto che è importante essere sicuri che ogni minimo esempio considerato positivo da parte del modello venga sottoposto a ispezione umana (come nel caso in questione). Da ciò si può dedurre che è preferibile l'albero non potato.
+
+Segue anche la F-measure:
+
+```{r}
+print("Albero normale: ")
+rdt$byClass['F1']
+print('-----------------')
+print("Albero pruned: ")
+rpdt$byClass['F1']
+```
+
+L'albero non pruned ha un F1 maggiore rispetto all'altro. Questa misura riassume le misure di precision e recall essendo una media armonica delle due, e, anche se di poco, si può affermare che il primo albero sia preferibile al secondo.
+
+Seguono le curve ROC degli alberi:
+
+```{r}
+plot(dt.perf.tpr.rocr,
+     col = "darkblue",
+     main=paste("DT AUC:", 
+                round((dt.perf.rocr@y.values[[1]]), 4),
+                "  |  ",
+                "PDT AUC:", 
+                round(pdt.perf.rocr@y.values[[1]], 4)))
+plot(pdt.perf.tpr.rocr,
+     add = TRUE,
+     col = "red")
+abline(0, 1, lty = 2)
+legend("bottomright", legend=c("Albero normale", "Albero pruned"),
+       col=c("darkblue", "red"), lty=1, cex=0.8)
+```
+
+Da questo grafico si nota che l'albero normale ha una AUC maggiore rispetto al pruned. Ciò significa che si avvicina di più a quello che dovrebbe essere un classificatore ottimale.
+
+In conclusione, vista l'importanza in questo campo della misura di recall e viste le curve ROC con relativa area sotto la curva (AUC), si è deciso di utilizzare l'albero normale rispetto al pruned come modello.
+
+### Naive Bayes
+
+Anche per bayes viene impostata una 10-fold cross validation:
+
+```{r}
+control = trainControl(method = "cv", 
+                       number = 10, 
+                       classProbs = TRUE, 
+                       summaryFunction = twoClassSummary)
+```
+
+Alleno il modello bayesiano:
+
+```{r}
+bayes.model = train(Outcome ~ .,
+                    data = trainset, 
+                    method = "naive_bayes", 
+                    metric = "ROC",
+                    trControl = control)
+```
+
+Mostro la matrice di confusione ottenuta con altre misure di performance:
+
+```{r}
+nbp = predict(bayes.model, testset)
+resultBayes = confusionMatrix(nbp, 
+                              testset$Outcome, 
+                              mode = "prec_recall")
+resultBayes
+```
+
+Ora viene mostrata la relativa curva ROC con la AUC:
+
+```{r}
+nb = bayes.model
+nb.pred.nb = predict(nb, newdata = testset, type = "prob")[,2]
+nb.pred.rocr = prediction(nb.pred.nb, testset$Outcome) 
+nb.perf.tpr.rocr = performance(nb.pred.rocr, "tpr", "fpr")
+nb.perf.rocr = performance(nb.pred.rocr, measure = "auc", x.measure = "cutoff")
+plot(nb.perf.tpr.rocr, main=paste("AUC:",(nb.perf.rocr@y.values)))
+abline(0, 1, lty = 2)
+```
+
+Segue il cut-off ottimale:
+
+```{r}
+print("Bayes cut-off")
+print(opt.cut(nb.perf.tpr.rocr, nb.pred.rocr))
+```
+
+E il confronto accuracy-cut-off:
+
+```{r}
+nb.acc.perf = performance(nb.pred.rocr, measure = "acc")
+plot(nb.acc.perf)
+```
+
+Infine, viene stampato il dato sulla overall accuracy:
+
+```{r}
+ind = which.max(slot(nb.acc.perf, "y.values")[[1]]) 
+nb.acc = slot(nb.acc.perf, "y.values")[[1]][ind]
+cutoff = slot(nb.acc.perf, "x.values")[[1]][ind] 
+print(c(accuracy = nb.acc, cutoff = cutoff))
+```
+
+## Analisi risultati
+
+In questa sezione verranno confrontati i risultati delle performance dei due modelli e, in base ad essi, verrà scelto il migliore.
+
+Principalmente, vengono confrontate le matrici di confusione dell'albero di decisione e del classificatore bayesian:
+
+```{r}
+print("Albero: ")
+rdt$table
+print('-----------------')
+print("Naive Bayes: ")
+resultBayes$table
+```
+
+Analizzando le matrici di confusione, si nota che l'albero ha qualche errore in più nella predizione rispetto al naive Bayes. Infatti, si noti che il numero dei falsi positivi del bayesian è minore di quello dell'albero.
+
+L'accuracy dei due modelli è la seguente:
+
+```{r}
+print("Albero: ")
+rdt$overall['Accuracy']
+print('-----------------')
+print("Naive Bayes: ")
+resultBayes$overall['Accuracy']
+```
+
+Da ciò segue che l'albero ha una accuracy minore rispetto al bayesian. Tuttavia, essendo il test set sbilanciato, in quanto ci sono molti più individui con `Outcome = No` rispetto a quelli con `Yes`, l'accuracy in questo caso potrebbe non essere una metrica significativa.
+
+Vengono mostrate le misure di precision e recall:
+
+```{r}
+print("Albero: ")
+rdt$byClass['Precision']
+print('-----------------')
+print("Naive Bayes: ")
+resultBayes$byClass['Precision']
+```
+
+Le precision risultanti hanno poco discostanti. Quindi si può affermare che entrambi i modelli hanno una precisione quasi simile nel predirre le classi positive del test set. Questo porta a preferire il Naive Bayes per il fatto che la sua precision è leggermente più alta dell'altro.
+
+```{r}
+print("Albero: ")
+rdt$byClass['Recall']
+print('-----------------')
+print("Naive Bayes: ")
+resultBayes$byClass['Recall']
+```
+
+Da quanto riportato, si può esservare che il classificatore Naive Bayes ha una recall più alta dell'albero di decisione. Come già espresso in precedenza, questo è un parametro di performance da tenere in considerazione soprattutto in ambito medico, visto che è importante essere sicuri che ogni minimo esempio considerato positivo da parte del modello venga sottoposto a ispezione umana (come nel caso in questione). Da ciò si può dedurre che è preferibile il Naive Bayes.
+
+Segue anche la F-measure:
+
+```{r}
+print("Albero: ")
+rdt$byClass['F1']
+print('-----------------')
+print("Naive Bayes: ")
+resultBayes$byClass['F1']
+```
+
+L'albero ha un F1 minore rispetto a Naive Bayes. Questa misura riassume le misure di precision e recall essendo una media armonica delle due, e, anche se di poco, si può affermare che il primo albero sia preferibile al secondo.
+
+Seguono le curve ROC dei modelli:
+
+```{r}
+plot(dt.perf.tpr.rocr,
+     col = "darkblue",
+     main=paste("Tree AUC:", 
+                round((dt.perf.rocr@y.values[[1]]), 4),
+                "  |  ",
+                "Bayes AUC:", 
+                round(nb.perf.rocr@y.values[[1]], 4)))
+plot(nb.perf.tpr.rocr,
+     add = TRUE,
+     col = "red")
+abline(0, 1, lty = 2)
+legend("bottomright", legend=c("Albero di decisione", 
+                               "Naive Bayes"),
+       col=c("darkblue", "red"), 
+       lty=1, cex=0.8)
+```
+
+Da questo grafico si nota che l'albero normale ha una AUC minore rispetto al bayes. Ciò significa che si avvicina di più a quello che dovrebbe essere un classificatore ottimale.
+
+## Conclusioni
+
+Nell'analisi di questo dataset, si è deciso di utilizzare e confrontare due modelli di machine learning: alberi di decisione e naive Bayes.
+
+Si sono svolti degli esperimenti su questi modelli, in particolare usando una 10-fold cross validation e illustrando le varie misure di performance.
+
+Inoltre, sono stati svolti degli esperimenti aggiuntivi anche sull'albero di decisione. Infatti, questi sono serviti per evitare l'overfitting dell'albero. Applicando i criteri di potatura e confrontando l'albero potato e quello normale, è risultato che l'albero normale è il migliore e quindi non c'è un rischio di sovradattare il dataset.
+
+In seguito, si sono confrontati i risultati degli esperimenti fatti con l'albero migliore e il classificatore Naive Bayes.
+
+L'analisi delle misure di performance riporta che il miglior classificatore tra i due è il naive Bayes. Infatti, esso possiede la maggiore precision, recall (molto importante essendo in ambito medico) e AUC della relativa curva ROC.
